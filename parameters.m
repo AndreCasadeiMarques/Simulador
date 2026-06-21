@@ -86,7 +86,7 @@ p.K2_att = diag([2*zeta*wn_att, 2*zeta*wn_att, 2*zeta*wn_att]);
 
 % Simulação e Guiamento
 p.t_sim = 40.0;
-p.W_r = [0,0,0; 0,0,0.2; 0,0,0.4]';
+p.W_r = [0,0,0; 0,0,0.01; 0,0,0.01]';
 p.W_alpha = zeros(3, 3);
 p.R_acc = 0.5; p.v_max = 10.0; p.a_max = 2.0; 
 p.wn_ref = 0.8; p.zeta_ref = 1.0;

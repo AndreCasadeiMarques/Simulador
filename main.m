@@ -25,6 +25,10 @@ hist.r = zeros(3, N); hist.r_bar = zeros(3, N);
 hist.v = zeros(3, N); 
 hist.q = zeros(4, N); hist.w = zeros(3, N); 
 hist.varpi = zeros(p.n_r, N); hist.eta = zeros(p.n_r, N);
+hist.q_bar   = zeros(4, N);
+hist.f_cmd   = zeros(3, N);
+hist.tau_cmd = zeros(3, N);
+hist.f_star  = zeros(p.n_r, N);
 
 delta_aero = zeros(3,1); 
 eta_prev   = zeros(p.n_r, 1);

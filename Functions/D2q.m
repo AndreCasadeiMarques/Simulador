@@ -3,7 +3,8 @@
 
 function q = D2q(D)
     % Componente escalar
-    eta = 0.5*sqrt(1+trD(D));
+    trD = trace(D);
+    eta = 0.5*sqrt(1+trD);
     % Componente vetorial
     epsilon = 0.25/eta*[D(2,3)-D(3,2);
                         D(3,1)-D(1,3);

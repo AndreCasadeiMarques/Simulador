@@ -14,7 +14,6 @@ classdef cPlotter < handle
             % Conversão do Quatérnio armazenado para Ângulos de Euler
             N = length(t); Euler = zeros(3, N);
             for k = 1:N
-                % Usa a função q2D (deve estar no Path) para obter a Matriz de Cossenos Diretores
                 D_bg = q2D(hist.q(:,k));
                 Euler(1,k) = atan2(D_bg(2,3), D_bg(3,3));
                 Euler(2,k) = -asin(max(min(D_bg(1,3), 1), -1));
