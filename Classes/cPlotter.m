@@ -28,6 +28,11 @@ classdef cPlotter < handle
             plot3(hist.r(1,:), hist.r(2,:), hist.r(3,:), 'b', 'LineWidth', 2); hold on;
             plot3(hist.r_bar(1,:), hist.r_bar(2,:), hist.r_bar(3,:), 'r--', 'LineWidth', 1.5);
             grid on; xlabel('X [m]'); ylabel('Y [m]'); zlabel('Z [m]'); 
+            axis equal;
+            margem = 2.0;
+            xlim([min(hist.r(1,:)) - 10, max(hist.r(1,:)) + 10]);
+            ylim([min(hist.r(2,:)) - 10, max(hist.r(2,:)) + 10]);
+            zlim([min(hist.r(3,:)) - 2, max(hist.r(3,:)) + 2]);
             legend('Atual', 'Referência', 'Location', 'best');
             title('Rastreio de Trajetória 3D');
             exportgraphics(f1, 'Outputs/1_Trajetoria.pdf', 'ContentType', 'vector');

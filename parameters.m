@@ -4,7 +4,7 @@ p = struct();
 % Físicos
 p.m   = 390.0;          
 p.g   = 9.80665;        
-p.Ts  = 0.001;          
+p.Ts  = 0.002;          
 
 p.Jbatata = [247.8      0      0;
             0  303.8      0;
@@ -90,7 +90,7 @@ p.K2_att = diag([2*zeta*wn_att, 2*zeta*wn_att, 2*zeta*wn_att]);
 
 % Simulação e Guiamento
 p.t_sim = 40.0;
-p.W_r = [0,0,0; 0,0,10; 0,0,20]';
+p.W_r = [0,0,0; 0,0,10; 100,0,20]';
 p.W_alpha = zeros(3, 3);
 p.R_acc = 0.5; p.v_max = 10.0; p.a_max = 2.0; 
 p.wn_ref = 0.8; p.zeta_ref = 1.0;
