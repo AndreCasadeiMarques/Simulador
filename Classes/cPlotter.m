@@ -90,6 +90,64 @@ classdef cPlotter < handle
             grid on; ylabel('\eta (0 a 1)'); xlabel('Tempo [s]'); title('Comando Normalizado (\eta)');
             exportgraphics(f5, 'Outputs/5_Rotores.pdf', 'ContentType', 'vector');
 
+            %% Gráfico 6: Ângulos Aerodinâmicos (Ataque e Derrapagem)
+            fig6 = figure('Name', 'Angulos Aerodinamicos', 'NumberTitle', 'off');
+            subplot(2,1,1);
+            plot(t, hist.alpha * (180/pi), 'b', 'LineWidth', 1.5);
+            ylabel('\alpha (deg)');
+            title('Ângulo de Ataque (\alpha) e Derrapagem (\beta)');
+            grid on;
+
+            subplot(2,1,2);
+            plot(t, hist.beta * (180/pi), 'r', 'LineWidth', 1.5);
+            ylabel('\beta (deg)');
+            xlabel('Tempo (s)');
+            grid on;
+            saveas(fig6, 'Outputs/6_Angulos_Aerodinamicos.pdf');
+
+            %% Gráfico 7: Forças Propulsivas (Comandadas vs Realizadas)
+            fig7 = figure('Name', 'Forcas', 'NumberTitle', 'off');
+            labels_f = {'F_x', 'F_y', 'F_z'};
+            for i = 1:3
+                subplot(3,1,i);
+                plot(t, hist.f_cmd(i,:), 'k--', 'LineWidth', 1.5); hold on;
+                plot(t, hist.f_real(i,:), 'b', 'LineWidth', 1.2);
+                ylabel(sprintf('%s (N)', labels_f{i}));
+                grid on;
+                if i == 1
+                    title('Forças Propulsivas no Corpo: Comandadas vs Realizadas');
+                    legend('Comandada (Controlador)', 'Realizada (Motores)', 'Location', 'best');
+                end
+            end
+            xlabel('Tempo (s)');
+            saveas(fig7, 'Outputs/7_Forcas.pdf');
+
+            %% Gráfico 8: Torques Propulsivos (Comandados vs Realizados)
+            fig8 = figure('Name', 'Torques', 'NumberTitle', 'off');
+            labels_tau = {'\tau_x', '\tau_y', '\tau_z'};
+            for i = 1:3
+                subplot(3,1,i);
+                plot(t, hist.tau_cmd(i,:), 'k--', 'LineWidth', 1.5); hold on;
+                plot(t, hist.tau_real(i,:), 'r', 'LineWidth', 1.2);
+                ylabel(sprintf('%s (N.m)', labels_tau{i}));
+                grid on;
+                if i == 1
+                    title('Torques Propulsivos no Corpo: Comandados vs Realizados');
+                    legend('Comandado (Controlador)', 'Realizado (Motores)', 'Location', 'best');
+                end
+            end
+            xlabel('Tempo (s)');
+            saveas(fig8, 'Outputs/8_Torques.pdf');
+
+            %% Gráfico 9: Pressão Dinâmica
+            fig9 = figure('Name', 'Pressao Dinamica', 'NumberTitle', 'off');
+            plot(t, hist.pdin, 'k', 'LineWidth', 1.5);
+            ylabel('q (Pa)');
+            xlabel('Tempo (s)');
+            title('Pressão Dinâmica Durante o Voo');
+            grid on;
+            saveas(fig9, 'Outputs/9_Pressao_Dinamica.pdf');
+
             disp('>> Gráficos exibidos interativamente e PDFs salvos na pasta Outputs.');
         end
     end

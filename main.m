@@ -39,6 +39,11 @@ hist.q_bar   = zeros(4, N);
 hist.f_cmd   = zeros(3, N);
 hist.tau_cmd = zeros(3, N);
 hist.f_star  = zeros(p.n_r, N);
+hist.alpha    = zeros(1, N);
+hist.beta     = zeros(1, N);
+hist.pdin     = zeros(1, N);
+hist.f_real   = zeros(3, N);
+hist.tau_real = zeros(3, N);
 
 delta_aero = zeros(3,1); 
 %eta_prev   = zeros(p.n_r, 1);
@@ -73,6 +78,33 @@ for k = 1:N
     mav.integrate(eta, delta_aero);
 
     eta_prev = eta; % Causalidade do motor
+
+    % 1. Extração Aerodinâmica (Assumindo que Vento = 0)
+    D_bg = q2D(mav.q);
+    v_body = D_bg * mav.v; % Projeta a velocidade na base do corpo
+    V_norm = norm(v_body);
+
+    % Filtro para não dividir por zero em baixas velocidades
+    if V_norm > 0.1
+        hist.alpha(1, k) = atan2(v_body(3), v_body(1));
+        hist.beta(1, k)  = asin(max(min(v_body(2)/V_norm, 1), -1));
+    else
+        hist.alpha(1, k) = 0;
+        hist.beta(1, k)  = 0;
+    end
+
+    % Extração de Pressão Dinâmica
+    rho_ar = 1.225; 
+    if isfield(p, 'rho'), rho_ar = p.rho; end % Proteção caso não tenha o p.rho
+    hist.pdin(1, k) = 0.5 * rho_ar * V_norm^2;
+
+    % 2. Esforços Realizados Fisicamente pela Planta (Física Pura)
+    % F_rotor = kf * varpi^2
+    f_rotors_real = p.kf .* (mav.varpi.^2); 
+    wrench_real = p.G * f_rotors_real; % Multiplica pelo alocador para ter o esforço total
+
+    hist.f_real(:, k)   = wrench_real(1:3); % Extrai Fx, Fy, Fz realizados
+    hist.tau_real(:, k) = wrench_real(4:6); % Extrai Mux, Muy, Muz realizados
 end
 
 % 4. Pós-Processamento

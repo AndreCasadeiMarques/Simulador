@@ -73,7 +73,9 @@ p.Jt = p.Jb + Jb_rot;
 p.Jt_inv = inv(p.Jt);
 
 % Aerodinâmica
-p.rho = 1.225; p.Aa = 7.34; p.c = 0.7917;         
+p.rho = 1.225; 
+p.Aa = 7.34; 
+p.c = 0.7917;         
 p.CD0 = 0.0312; p.CDa = 0.0; p.CDq = -0.5926; p.CDde = 0.0084;
 p.CYb = -0.4727; p.CYp = 0.0958; p.CYr = 0.1665; p.CYda = 0.0; p.CYdr = 0.0034;
 p.CL0 = 0.0; p.CLa = 5.8392; p.CLq = 10.2236; p.CLde = 0.0084;
