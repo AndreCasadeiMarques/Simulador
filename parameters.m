@@ -4,13 +4,17 @@ p = struct();
 % Físicos
 p.m   = 390.0;          
 p.g   = 9.80665;        
-p.Ts  = 0.005;          
+p.Ts  = 0.001;          
+
+p.Jbatata = [247.8      0      0;
+            0  303.8      0;
+            0      0  540.8];
 p.Jb  = diag([258.9, 331.8, 575.4]); 
 p.Jb(1,3) = -14.0; p.Jb(3,1) = -14.0;
 
 % Atuadores (Limites movidos para cá - Fim do Hardcode)
 p.n_r   = 10;                     
-p.mum   = 0.01 * ones(p.n_r, 1);  
+p.mum   = 0.25 * ones(p.n_r, 1);  
 p.km    = 1000 * ones(p.n_r, 1);  
 p.w_min = [100 * ones(8, 1); 0; 0];                    
 p.w_max = 1000 * ones(p.n_r, 1);                   
@@ -78,7 +82,7 @@ p.Cm0 = 0.0; p.Cma = -1.7199; p.Cmq = -21.9187; p.Cmde = -0.0309;
 p.Cnb = 0.0726; p.Cnp = -0.0810; p.Cnr = -0.0732; p.Cnda = 0.0001; p.Cndr = -0.0010;
 
 % Ganhos
-wn_pos = 0.2; wn_att = 1.0; zeta = 1.0; 
+wn_pos = 0.1; wn_att = 0.5; zeta = 1.0; 
 p.K1_pos = diag([wn_pos^2, wn_pos^2, wn_pos^2]);
 p.K2_pos = diag([2*zeta*wn_pos, 2*zeta*wn_pos, 2*zeta*wn_pos]);
 p.K1_att = diag([wn_att^2, wn_att^2, wn_att^2]);
@@ -86,7 +90,7 @@ p.K2_att = diag([2*zeta*wn_att, 2*zeta*wn_att, 2*zeta*wn_att]);
 
 % Simulação e Guiamento
 p.t_sim = 40.0;
-p.W_r = [0,0,0; 0,0,0.01; 0,0,0.01]';
+p.W_r = [0,0,0; 0,0,10; 0,0,20]';
 p.W_alpha = zeros(3, 3);
 p.R_acc = 0.5; p.v_max = 10.0; p.a_max = 2.0; 
 p.wn_ref = 0.8; p.zeta_ref = 1.0;

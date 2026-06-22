@@ -16,6 +16,16 @@ ctrl  = cControl(p);
 guide = cGuidance(p);
 plotter = cPlotter();
 
+
+f_hover = (p.m * p.g) / (8 * cos(3 * pi/180));
+w_hover = sqrt(f_hover / p.kf(1));
+eta_hover = w_hover / p.km(1);
+
+% Inicializa rotores 1-8 em hover, e rotores 9-10 (horizontais) em zero
+mav.varpi = [w_hover * ones(8,1); 0; 0];
+eta_prev  = [eta_hover * ones(8,1); 0; 0];
+% =================================================================
+
 % 2. Configuração do Laço Temporal
 t = 0:p.Ts:p.t_sim;
 N = length(t);
@@ -31,7 +41,7 @@ hist.tau_cmd = zeros(3, N);
 hist.f_star  = zeros(p.n_r, N);
 
 delta_aero = zeros(3,1); 
-eta_prev   = zeros(p.n_r, 1);
+%eta_prev   = zeros(p.n_r, 1);
 
 disp('>> Simulando...');
 

@@ -34,7 +34,7 @@ classdef cControl < handle
             % 2. Mapeamento CCA (Lógica Híbrida de Transição)
             % =============================================================
             R_z = rotz(ref.alpha_bar(3)); 
-            f_psi = R_z' * f_I_cmd;  
+            f_psi = R_z * f_I_cmd;  
             
             Tx_req = f_psi(1); 
             Ty_req = f_psi(2);
@@ -44,7 +44,7 @@ classdef cControl < handle
             if Tx_req < 0
                 % FREAR: O drone empina (Nose UP) e corta rotores horizontais.
                 % CORREÇÃO: Restauração do sinal de MENOS (-Tx_req)
-                theta_des = asin(max(min(-Tx_req / max(Tz_req, 0.1), 1), -1));
+                theta_des = asin(max(min(Tx_req / max(Tz_req, 0.1), 1), -1));
                 Tx_alloc  = 0; 
             else
                 % ACELERAR: O drone voa nivelado e usa rotores horizontais.
@@ -56,7 +56,7 @@ classdef cControl < handle
             phi_des = asin(max(min(-Ty_req / max(Tz_req, 0.1), 1), -1));
             
             % Matriz de Comando Passiva (Solo -> Corpo)
-            D_cmd = rotx(phi_des)' * roty(theta_des)' * rotz(ref.alpha_bar(3))';
+            D_cmd = rotx(phi_des) * roty(theta_des) * rotz(ref.alpha_bar(3));
             
             % =============================================================
             % 3. Malha de Atitude (Vetor de Gibbs)
@@ -68,7 +68,7 @@ classdef cControl < handle
                                    D_tilde(1,2) - D_tilde(2,1)];
             
             alpha_com = - obj.K1_att * e_alpha - obj.K2_att * (mav.w - ref.w_bar);
-            tau_b_c = obj.Jt * alpha_com + skew(mav.w) * (obj.Jt * mav.w) - mav.tau_tilde - mav.tau_aero;
+            tau_b_c = obj.Jt * alpha_com + skew(mav.w) * (obj.Jt * mav.w) - mav.tau_aero;
             
             % =============================================================
             % 4. Alocação e Saturação
