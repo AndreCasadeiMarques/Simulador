@@ -1,49 +1,34 @@
 %% =====================================================================
 % PARÂMETROS DE SIMULAÇÃO - eVTOL GD-350
 % Descrição: Define todos os parâmetros físicos, aerodinâmicos, 
-% geométricos e de controle para a simulação do veículo.
+% geométricos e de controle organizados em structs isoladas por domínio.
 % =====================================================================
-p = struct();
 
-%% SIMULAÇÃO E TEMPO
-p.t_sim = 40.0;                         % tempo total de simulação [s]
-p.Ts    = 0.002;                        % passo de integração / tempo de amostragem [s]
-
-
-%% PARÂMETROS FÍSICOS E INERCIAIS
-p.m       = 390.0;                      % massa total da aeronave [kg]
-p.g       = 9.80665;                    % aceleração da gravidade [m/s^2]
+%% 1. STRUCTS AUXILIARES E PARÂMETROS GERAIS
+m_val       = 390.0;                      % massa total da aeronave [kg]
+g_val       = 9.80665;                    % aceleração da gravidade [m/s^2]
+n_r_val     = 10;                         % número total de rotores
+Ts_val      = 0.002;                      % passo de integração [s]
+t_sim_val   = 140.0;                       % tempo total de simulação [s]
 
 % Matriz de inércia do corpo (sem os rotores) [kg.m^2]
-p.Jb      = diag([258.9, 331.8, 575.4]); 
-p.Jb(1,3) = -14.0; 
-p.Jb(3,1) = -14.0;
+Jb = diag([258.9, 331.8, 575.4]); 
+Jb(1,3) = -14.0; 
+Jb(3,1) = -14.0;
 
-% Matriz de inércia base/referência (mantida por legado/verificação) [kg.m^2]
-p.Jbatata = [247.8,     0,     0;
-                 0, 303.8,     0;
-                 0,     0, 540.8];
+% Parâmetros dos Motores e Rotores
+Jr_val = 0.12 * ones(n_r_val, 1);
+mum_val = 0.25 * ones(n_r_val, 1);
+km_val = 1000 * ones(n_r_val, 1);
+kf_val = (1114.46 / 1000^2) * ones(n_r_val, 1);
+k_val = 0.02 * ones(n_r_val, 1);
 
+w_min_val = [100 * ones(8, 1); 0; 0];
+w_max_val = 1000 * ones(n_r_val, 1);
+f_min_val = [10 * ones(8, 1); 0; 0];
+f_max_val = 1114.46 * ones(n_r_val, 1);
 
-%% SISTEMA DE PROPULSÃO E ATUADORES
-p.n_r   = 10;                                   % número total de rotores
-p.Jr    = 0.12 * ones(p.n_r, 1);                % momento de inércia individual do rotor [kg.m^2]
-p.mum   = 0.25 * ones(p.n_r, 1);                % constante de tempo mecânica dos motores [s]
-p.km    = 1000 * ones(p.n_r, 1);                % ganho estático dos motores (comando para RPM)
-
-% Coeficientes de Esforço
-p.kf    = (1114.46 / 1000^2) * ones(p.n_r, 1);  % coeficiente de empuxo dos rotores [N/(rad/s)^2]
-p.k     = 0.02 * ones(p.n_r, 1);                % razão torque/empuxo (k_tau/k_f) [m]
-
-% Limites de Saturação Física
-p.w_min = [100 * ones(8, 1); 0; 0];             % velocidade angular mínima [rad/s]
-p.w_max = 1000 * ones(p.n_r, 1);                % velocidade angular máxima [rad/s]
-p.f_min = [10 * ones(8, 1); 0; 0];              % empuxo mínimo exigido por rotor [N]
-p.f_max = 1114.46 * ones(p.n_r, 1);             % empuxo máximo gerado por rotor [N]
-
-
-%% GEOMETRIA DOS ROTORES
-% Posição vetorial [x; y; z] de cada rotor em relação ao CG da aeronave [m]
+% Geometria dos Rotores (Posição em relação ao CG)
 ell_b = [ 1.531, -1.305, 0.506;  
           1.531,  1.305, 0.506; 
          -1.531,  1.305, 0.506; 
@@ -55,114 +40,121 @@ ell_b = [ 1.531, -1.305, 0.506;
          -1.556,  0.000, 0.366;  
           1.556,  0.000, 0.366]';
 
-% Sentido de rotação (+1 anti-horário, -1 horário)
-p.sigma = [1; 1; 1; 1; -1; -1; -1; -1; 1; -1];
-
-% Ângulo de diedro (inclinação lateral) dos rotores de voo vertical (1 a 8) [rad]
+sigma_val = [1; 1; 1; 1; -1; -1; -1; -1; 1; -1];
 gamma_v = [-3, -3, -3, -3, 3, 3, 3, 3] * (pi/180);
 
+% Pré-computação das matrizes geométricas dos rotores
+G_val = zeros(6, n_r_val); 
+D_rb_val = zeros(3, 3, n_r_val); 
+Js_val = zeros(3, 3, n_r_val);
 
-%% PRÉ-COMPUTAÇÃO MATRICIAL (ALOCAÇÃO E INÉRCIA TOTAL)
-% Inicialização das matrizes tridimensionais e do alocador
-p.G    = zeros(6, p.n_r); 
-p.D_rb = zeros(3, 3, p.n_r); 
-p.Js   = zeros(3, 3, p.n_r);
-
-% 1. Configuração dos Rotores de Sustentação Vertical (1 a 8) com Diedro
 for i = 1:8
     x_i  = ell_b(1, i); 
     y_i  = ell_b(2, i); 
     d_xy = sqrt(x_i^2 + y_i^2); 
     th   = gamma_v(i);
     
-    % Matriz analítica exata de atitude local do rotor (Transposta D^{r_i/b}^T)
     D_rib_T = [ -(x_i/d_xy)*cos(th),  (y_i/d_xy), -(x_i/d_xy)*sin(th);
                 -(y_i/d_xy)*cos(th), -(x_i/d_xy), -(y_i/d_xy)*sin(th);
                 -sin(th),             0,           cos(th) ];
                 
-    p.D_rb(:,:,i) = D_rib_T;
-    p.Js(:,:,i)   = diag([0.05, 0.05, p.Jr(i)]); 
+    D_rb_val(:,:,i) = D_rib_T;
+    Js_val(:,:,i)   = diag([0.05, 0.05, Jr_val(i)]); 
     
-    % Direção do vetor de empuxo (3ª coluna exata da matriz acima)
     gamma_f = D_rib_T * [0; 0; 1];
-    
-    % Montagem do Alocador G (com correção do torque reverso de guinada)
-    p.G(:, i) = [gamma_f; cross(ell_b(:,i), gamma_f) - p.k(i)*p.sigma(i)*gamma_f];
+    G_val(:, i) = [gamma_f; cross(ell_b(:,i), gamma_f) - k_val(i)*sigma_val(i)*gamma_f];
 end
 
-% 2. Configuração dos Rotores Horizontais (9 e 10) para Empuxo Frontal
 for i = 9:10
     D_rib_T = [ 0, 0, 1;
                 0, 1, 0;
                -1, 0, 0];
               
-    p.D_rb(:,:,i) = D_rib_T;
-    p.Js(:,:,i)   = diag([0.05, 0.05, p.Jr(i)]);
+    D_rb_val(:,:,i) = D_rib_T;
+    Js_val(:,:,i)   = diag([0.05, 0.05, Jr_val(i)]);
     
-    % Motores horizontais apontam estritamente para o eixo X
     gamma_f = [1; 0; 0]; 
-    
-    p.G(:, i) = [gamma_f; cross(ell_b(:,i), gamma_f) - p.k(i)*p.sigma(i)*gamma_f];
+    G_val(:, i) = [gamma_f; cross(ell_b(:,i), gamma_f) - k_val(i)*sigma_val(i)*gamma_f];
 end
 
-% 3. Composição do Tensor de Inércia Total (Corpo + Rotores)
+% Composição do Tensor de Inércia Total (Corpo + Rotores)
 Jb_rot = zeros(3,3);
-for i = 1:p.n_r
-    Jb_rot = Jb_rot + p.D_rb(:,:,i) * p.Js(:,:,i) * p.D_rb(:,:,i)'; 
+for i = 1:n_r_val
+    Jb_rot = Jb_rot + D_rb_val(:,:,i) * Js_val(:,:,i) * D_rb_val(:,:,i)'; 
 end
-
-p.Jt     = p.Jb + Jb_rot; 
-p.Jt_inv = inv(p.Jt);
-
-
-%% PARÂMETROS AERODINÂMICOS
-p.rho = 1.225;          % densidade do ar [kg/m^3]
-p.Aa  = 7.34;           % área de asa/referência aerodinâmica [m^2]
-p.c   = 0.7917;         % corda de referência [m]
-
-% Coeficientes de Arrasto (Eixo X)
-p.CD0 =  0.0312;   p.CDa =  0.0;      p.CDq = -0.5926;   p.CDde =  0.0084;
-
-% Coeficientes de Força Lateral (Eixo Y)
-p.CYb = -0.4727;   p.CYp =  0.0958;   p.CYr =  0.1665;   p.CYda =  0.0;      p.CYdr =  0.0034;
-
-% Coeficientes de Sustentação (Eixo Z)
-p.CL0 =  0.0;      p.CLa =  5.8392;   p.CLq = 10.2236;   p.CLde =  0.0084;
-
-% Coeficientes de Momento de Rolagem (Roll)
-p.Clb = -0.0312;   p.Clp = -0.5926;   p.Clr =  0.2390;   p.Clda =  0.0045;   p.Cldr = -0.0;
-
-% Coeficientes de Momento de Arfagem (Pitch)
-p.Cm0 =  0.0;      p.Cma = -1.7199;   p.Cmq = -21.9187;  p.Cmde = -0.0309;
-
-% Coeficientes de Momento de Guinada (Yaw)
-p.Cnb =  0.0726;   p.Cnp = -0.0810;   p.Cnr = -0.0732;   p.Cnda =  0.0001;   p.Cndr = -0.0010;
+Jt_val = Jb + Jb_rot; 
+Jt_inv_val = inv(Jt_val);
 
 
-%% GANHOS DE CONTROLE E SINTONIA
-wn_pos = 0.1;           % frequência natural da malha de posição [rad/s]
-wn_att = 0.5;           % frequência natural da malha de atitude [rad/s]
-zeta   = 1.0;           % fator de amortecimento (crítico) para as malhas
+%% 2. CONFIGURAÇÃO DA STRUCT S_MAV (PLANTA)
+sMav = struct();
+sMav.m      = m_val;
+sMav.g      = g_val;
+sMav.Jt     = Jt_val;
+sMav.Jt_inv = Jt_inv_val;
+sMav.Ts     = Ts_val;
 
-p.K1_pos = diag([wn_pos^2, wn_pos^2, wn_pos^2]);
-p.K2_pos = diag([2*zeta*wn_pos, 2*zeta*wn_pos, 2*zeta*wn_pos]);
+sMav.mum    = mum_val;
+sMav.km     = km_val;
+sMav.kf     = kf_val;
+sMav.w_min  = w_min_val;
+sMav.w_max  = w_max_val;
+sMav.n_r    = n_r_val;
+sMav.sigma  = sigma_val;
+sMav.D_rb   = D_rb_val;
+sMav.Js     = Js_val;
+sMav.G      = G_val;
 
-p.K1_att = diag([wn_att^2, wn_att^2, wn_att^2]);
-p.K2_att = diag([2*zeta*wn_att, 2*zeta*wn_att, 2*zeta*wn_att]);
+% Parâmetros Aerodinâmicos
+sMav.rho = 1.225;
+sMav.Aa  = 7.34;
+sMav.c   = 0.7917;
+
+sMav.CD0 =  0.0312;   sMav.CDa =  0.0;      sMav.CDq = -0.5926;   sMav.CDde =  0.0084;
+sMav.CYb = -0.4727;   sMav.CYp =  0.0958;   sMav.CYr =  0.1665;   sMav.CYda =  0.0;      sMav.CYdr =  0.0034;
+sMav.CL0 =  0.0;      sMav.CLa =  5.8392;   sMav.CLq = 10.2236;   sMav.CLde =  0.0084;
+sMav.Clb = -0.0312;   sMav.Clp = -0.5926;   sMav.Clr =  0.2390;   sMav.Clda =  0.0045;   sMav.Cldr = -0.0;
+sMav.Cm0 =  0.0;      sMav.Cma = -1.7199;   sMav.Cmq = -21.9187;  sMav.Cmde = -0.0309;
+sMav.Cnb =  0.0726;   sMav.Cnp = -0.0810;   sMav.Cnr = -0.0732;   sMav.Cnda =  0.0001;   sMav.Cndr = -0.0010;
 
 
-%% GUIAMENTO (DRONE VIRTUAL) E MISSÃO
-% Matrizes de Waypoints da Missão
-p.W_r     = [0,0,0; 0,0,10; 100,0,20]'; % waypoints de posição 3xN [m]
-p.W_alpha = zeros(3, 3);                % waypoints de atitude Euler 3xN [rad]
+%% 3. CONFIGURAÇÃO DA STRUCT S_CONTROL (CONTROLADOR)
+sControl = struct();
+sControl.m      = m_val;
+sControl.g      = g_val;
+sControl.Jt     = Jt_val;
+sControl.f_min  = f_min_val;
+sControl.f_max  = f_max_val;
+sControl.kf     = kf_val;
+sControl.km     = km_val;
+sControl.G      = G_val;
 
-% Parâmetros do Gerador de Trajetória Fantasma
-p.R_acc    = 0.5;       % raio esférico de aceitação do waypoint [m]
-p.v_max    = 10.0;      % saturação de velocidade do drone fantasma [m/s]
-p.a_max    = 2.0;       % saturação de aceleração do drone fantasma [m/s^2]
-p.wn_ref   = 0.8;       % frequência natural de rastreio da malha virtual [rad/s]
-p.zeta_ref = 1.0;       % amortecimento da malha virtual
+% Ganhos de Controle e Sintonia (wn e zeta)
+wn_pos = 0.2;
+wn_att = 1.0;
+zeta   = 1.0;
+
+sControl.K1_pos = diag([wn_pos^2, wn_pos^2, wn_pos^2]);
+sControl.K2_pos = diag([2*zeta*wn_pos, 2*zeta*wn_pos, 2*zeta*wn_pos]);
+sControl.K1_att = diag([wn_att^2, wn_att^2, wn_att^2]);
+sControl.K2_att = diag([2*zeta*wn_att, 2*zeta*wn_att, 2*zeta*wn_att]);
 
 
-%% SALVAMENTO
-save('parameters.mat', 'p');
+%% 4. CONFIGURAÇÃO DA STRUCT S_GUIDANCE (GUIAMENTO)
+sGuidance = struct();
+sGuidance.Ts      = Ts_val;
+sGuidance.mode    = 'multicoptero'; % 'armado', 'multicoptero', 'transicao'
+sGuidance.W_r     = [0,0,0; 0,0,100; 100,0,100; 100,100,100; 0,100,100; 0,0,100; 0,0,0]';
+sGuidance.W_alpha = zeros(3, size(sGuidance.W_r, 2));
+sGuidance.v_avg   = 5.0; % velocidade média do Minimum Jerk [m/s]
+sGuidance.R_acc   = 5.0; % raio de wayset de cruzeiro [m]
+sGuidance.v_max   = 5.0; % velocidade máxima de cruzeiro [m/s]
+sGuidance.a_max   = 2.0; % aceleração máxima de cruzeiro [m/s^2]
+sGuidance.wn_ref  = 0.8; % frequência natural do campo vetorial [rad/s]
+
+
+%% 5. SALVAMENTO E EXPORTAÇÃO
+sSim.t_sim = t_sim_val;
+sSim.Ts = Ts_val;
+sSim.n_r = n_r_val;
+save('parameters.mat', 'sMav', 'sControl', 'sGuidance', 'sSim');

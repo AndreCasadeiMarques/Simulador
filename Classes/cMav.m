@@ -1,47 +1,39 @@
 classdef cMav < handle
     properties
-        % Físico e Inércia
+        % Parâmetros Físicos e Inerciais
         m         % massa total da aeronave [kg]
         g         % aceleração da gravidade [m/s^2]
         Jt        % matriz de inércia total (corpo + rotores) [kg.m^2]
-        Jt_inv    % inversa da matriz de inércia total
+        Jt_inv    % inversa da matriz de inércia total [kg.m^2]
+        Ts        % passo de tempo da simulação [s]
         
-        % Simulação
-        Ts        % passo de integração temporal / tempo de amostragem [s]
+        % Parâmetros dos Atuadores (Motores e Rotores)
+        mum       % constante de tempo dos motores [s] (vetor n_r x 1)
+        km        % ganho dos motores [rad/s] (vetor n_r x 1)
+        kf        % coeficiente de empuxo dos rotores (vetor n_r x 1)
+        w_min     % velocidade angular mínima do rotor (vetor n_r x 1)
+        w_max     % velocidade angular máxima do rotor (vetor n_r x 1)
+        n_r       % número total de rotores
+        sigma     % sentido de rotação dos rotores (+1 ou -1)
+        D_rb      % matrizes de rotação local dos rotores em relação ao corpo (3x3xN)
+        Js        % tensores de inércia locais dos rotores (3x3xN)
+        G         % matriz de alocação geométrica global
         
-        % Sistema de Propulsão (Rotores e Motores)
-        n_r       % número de rotores
-        mum       % constante de tempo dos motores (\mu_m)
-        km        % ganho dos motores (k_m)
-        kf        % coeficiente de empuxo dos rotores (k_f)
-        w_min     % velocidade angular mínima permitida nos rotores [rad/s]
-        w_max     % velocidade angular máxima permitida nos rotores [rad/s]
-        sigma     % sentido de rotação de cada rotor (+1 ou -1)
-        D_rb      % matrizes de rotação nominais de cada rotor para o corpo
-        Js        % matrizes de inércia individuais de cada rotor
-        G         % matriz de alocação de controle (G)
-        
-        % Aerodinâmica - Propriedades Gerais
-        rho       % densidade do ar (\rho) [kg/m^3]
-        Aa        % área de referência aerodinâmica [m^2]
-        c         % corda aerodinâmica de referência [m]
-        
-        % Aerodinâmica - Coeficientes de Força
-        CD0; CDa; CDq; CDde;           % coeficientes de arrasto (Drag - Eixo X)
-        CYb; CYp; CYr; CYda; CYdr;     % coeficientes de força lateral (Lateral - Eixo Y)
-        CL0; CLa; CLq; CLde;           % coeficientes de sustentação (Lift - Eixo Z)
-        
-        % Aerodinâmica - Coeficientes de Momento
-        Clb; Clp; Clr; Clda; Cldr;     % coeficientes de momento de rolagem (Roll)
-        Cm0; Cma; Cmq; Cmde;           % coeficientes de momento de arfagem (Pitch)
-        Cnb; Cnp; Cnr; Cnda; Cndr;     % coeficientes de momento de guinada (Yaw)
+        % Parâmetros Aerodinâmicos
+        rho; Aa; c;
+        CD0; CDa; CDq; CDde;
+        CYb; CYp; CYr; CYda; CYdr;
+        CL0; CLa; CLq; CLde;
+        Clb; Clp; Clr; Clda; Cldr;
+        Cm0; Cma; Cmq; Cmde;
+        Cnb; Cnp; Cnr; Cnda; Cndr;
         
         % Variáveis de Estado
         r         % posição no referencial inercial 3x1 [m]
         v         % velocidade linear 3x1 [m/s]
-        q         % atitude representada por quatérnio 4x1 [q0; q1; q2; q3]
-        w         % velocidade angular da aeronave (\omega) 3x1 [rad/s]
-        varpi     % velocidades angulares atuais dos rotores (\varpi) [rad/s]
+        q         % atitude representada por quatérnio 4x1 [e; n] (escalar no final)
+        w         % velocidade angular da aeronave (omega) 3x1 [rad/s]
+        varpi     % velocidades angulares atuais dos rotores (varpi) [rad/s]
         
         % Variáveis Computadas (Esforços Externos e Inerciais)
         f_aero    % força aerodinâmica resultante no referencial do corpo 3x1 [N]
@@ -51,28 +43,28 @@ classdef cMav < handle
     
     methods        
         %% CONSTRUTORA
-        % Inicializa o objeto do MAV carregando todos os parâmetros físicos, 
-        % geométricos e aerodinâmicos do arquivo de configuração (struct p), 
+        % Inicializa o objeto do MAV carregando todos os parâmetros físicos,
+        % geométricos e aerodinâmicos do arquivo de configuração (struct sMav),
         % além de pré-alocar os vetores de estado e esforços.
-        function obj = cMav(p)
+        function obj = cMav(sMav)
             % Parâmetros Físicos e Geométricos
-            obj.m = p.m; obj.g = p.g; obj.Jt = p.Jt; obj.Jt_inv = p.Jt_inv; obj.Ts = p.Ts;
-            obj.mum = p.mum; obj.km = p.km; obj.kf = p.kf; obj.w_min = p.w_min; obj.w_max = p.w_max;
-            obj.n_r = p.n_r; obj.sigma = p.sigma; obj.D_rb = p.D_rb; obj.Js = p.Js; obj.G = p.G;
+            obj.m = sMav.m; obj.g = sMav.g; obj.Jt = sMav.Jt; obj.Jt_inv = sMav.Jt_inv; obj.Ts = sMav.Ts;
+            obj.mum = sMav.mum; obj.km = sMav.km; obj.kf = sMav.kf; obj.w_min = sMav.w_min; obj.w_max = sMav.w_max;
+            obj.n_r = sMav.n_r; obj.sigma = sMav.sigma; obj.D_rb = sMav.D_rb; obj.Js = sMav.Js; obj.G = sMav.G;
             
             % Parâmetros Aerodinâmicos
-            obj.rho = p.rho; obj.Aa = p.Aa; obj.c = p.c;
-            obj.CD0 = p.CD0; obj.CDa = p.CDa; obj.CDq = p.CDq; obj.CDde = p.CDde;
-            obj.CYb = p.CYb; obj.CYp = p.CYp; obj.CYr = p.CYr; obj.CYda = p.CYda; obj.CYdr = p.CYdr;
-            obj.CL0 = p.CL0; obj.CLa = p.CLa; obj.CLq = p.CLq; obj.CLde = p.CLde;
-            obj.Clb = p.Clb; obj.Clp = p.Clp; obj.Clr = p.Clr; obj.Clda = p.Clda; obj.Cldr = p.Cldr;
-            obj.Cm0 = p.Cm0; obj.Cma = p.Cma; obj.Cmq = p.Cmq; obj.Cmde = p.Cmde;
-            obj.Cnb = p.Cnb; obj.Cnp = p.Cnp; obj.Cnr = p.Cnr; obj.Cnda = p.Cnda; obj.Cndr = p.Cndr;
+            obj.rho = sMav.rho; obj.Aa = sMav.Aa; obj.c = sMav.c;
+            obj.CD0 = sMav.CD0; obj.CDa = sMav.CDa; obj.CDq = sMav.CDq; obj.CDde = sMav.CDde;
+            obj.CYb = sMav.CYb; obj.CYp = sMav.CYp; obj.CYr = sMav.CYr; obj.CYda = sMav.CYda; obj.CYdr = sMav.CYdr;
+            obj.CL0 = sMav.CL0; obj.CLa = sMav.CLa; obj.CLq = sMav.CLq; obj.CLde = sMav.CLde;
+            obj.Clb = sMav.Clb; obj.Clp = sMav.Clp; obj.Clr = sMav.Clr; obj.Clda = sMav.Clda; obj.Cldr = sMav.Cldr;
+            obj.Cm0 = sMav.Cm0; obj.Cma = sMav.Cma; obj.Cmq = sMav.Cmq; obj.Cmde = sMav.Cmde;
+            obj.Cnb = sMav.Cnb; obj.Cnp = sMav.Cnp; obj.Cnr = sMav.Cnr; obj.Cnda = sMav.Cnda; obj.Cndr = sMav.Cndr;
             
             % Inicialização das Variáveis de Estado
             obj.r = zeros(3,1); 
             obj.v = zeros(3,1); 
-            obj.q = [1; 0; 0; 0]; 
+            obj.q = [0; 0; 0; 1];  % Inicialização com quatérnio identidade (escalar no final)
             obj.w = zeros(3,1); 
             obj.varpi = zeros(obj.n_r, 1);
             
@@ -84,8 +76,8 @@ classdef cMav < handle
         
         
         %% ESFORÇOS AERODINÂMICOS E DISTÚRBIOS INERCIAIS
-        % Atualiza os ângulos de ataque e derrapagem, extrai as forças e 
-        % momentos aerodinâmicos baseados na pressão dinâmica, e calcula o 
+        % Atualiza os ângulos de ataque e derrapagem, extrai as forças e
+        % momentos aerodinâmicos baseados na pressão dinâmica, e calcula o
         % torque giroscópico reativo gerado pela inércia de rotação dos rotores.
         function updateDisturbances(obj, eta_prev, delta)
             D_bg = q2D(obj.q);
@@ -126,7 +118,7 @@ classdef cMav < handle
             h_spin_dot = zeros(3,1);
             
             for i = 1:obj.n_r
-                J_rot = obj.D_rb(:,:,i) * obj.Js(:,:,i); 
+                J_rot = obj.D_rb(:,:,i) * obj.Js(:,:,i) * obj.D_rb(:,:,i)'; 
                 h_spin     = h_spin + J_rot * (obj.sigma(i) * obj.varpi(i) * [0;0;1]);
                 h_spin_dot = h_spin_dot + J_rot * (obj.sigma(i) * varpi_dot(i) * [0;0;1]);
             end
@@ -136,7 +128,7 @@ classdef cMav < handle
         
         
         %% INTEGRAÇÃO NUMÉRICA (Runge-Kutta 4ª Ordem)
-        % Propaga os estados da aeronave um passo no tempo (Ts) utilizando a 
+        % Propaga os estados da aeronave um passo no tempo (Ts) utilizando a
         % função de derivadas contínuas (fun).
         function obj = integrate(obj, eta, ~)
             % Montagem do vetor de estados atual
@@ -154,6 +146,15 @@ classdef cMav < handle
             % Desempacotamento e atualização das propriedades do objeto
             obj.r = xn(1:3); 
             obj.v = xn(4:6);
+            
+            % Restrição de Chão (Ground Constraint: z >= 0)
+            if obj.r(3) < 0
+                obj.r(3) = 0;
+                if obj.v(3) < 0
+                    obj.v(3) = 0; % Zera velocidade de descida se bateu no chão
+                end
+            end
+            
             obj.q = xn(7:10) / norm(xn(7:10)); % Normalização de segurança do quatérnio
             obj.w = xn(11:13);
             
@@ -163,7 +164,7 @@ classdef cMav < handle
         
         
         %% EQUAÇÕES DE MOVIMENTO (Cinemática e Dinâmica)
-        % Calcula as derivadas de todos os estados contínuos [r_dot, v_dot, 
+        % Calcula as derivadas de todos os estados contínuos [r_dot, v_dot,
         % q_dot, w_dot, varpi_dot] num instante genérico de avaliação do integrador.
         function xp = fun(obj, x, eta)
             % Extração dos estados instantâneos
@@ -187,14 +188,49 @@ classdef cMav < handle
             r_dot = v1;
             v_dot = (1/obj.m) * (D1' * (f_b + obj.f_aero)) - [0; 0; obj.g];
             
-            % 4. Cinemática de Rotação (Derivada do Quatérnio)
-            q_dot = 0.5 * [0, -w1'; w1, -skew(w1)] * q1;
+            % 4. Cinemática de Rotação (Derivada do Quatérnio Escalar no Final)
+            q_dot = 0.5 * [-skew(w1), w1; -w1', 0] * q1;
             
             % 5. Dinâmica de Rotação (Equação de Euler com Efeitos Aerodinâmicos e Inerciais)
             w_dot = obj.Jt_inv * (cross(obj.Jt * w1, w1) + tau_b + obj.tau_aero + obj.tau_tilde);
             
             % Empacotamento do vetor derivada
             xp = [r_dot; v_dot; q_dot; w_dot; varpi_dot];
+        end
+        
+        
+        %% HOVER INPUT
+        % Calcula analiticamente a entrada de comando para a condição de hover.
+        function eta_hover = getHoverInput(obj)
+            f_hover   = (obj.m * obj.g) / (8 * cos(3 * pi/180)); % Empuxo por rotor [N]
+            w_hover   = sqrt(f_hover / obj.kf(1));             % Rotação de hover [rad/s]
+            eta_hover = w_hover / obj.km(1);                   % Comando do motor
+        end
+        
+        
+        %% DIAGNOSTICS (Passive Data Logging)
+        % Realiza todos os cálculos trigonométricos e físicos secundários 
+        % para o logging de dados, mantendo a main.m livre de cálculos matemáticos.
+        function diag = getDiagnostics(obj)
+            D_bg = q2D(obj.q);
+            v_body = D_bg * obj.v; 
+            V_norm = norm(v_body);
+            
+            if V_norm > 0.1
+                diag.alpha = atan2(v_body(3), v_body(1));
+                diag.beta  = asin(max(min(v_body(2)/V_norm, 1), -1));
+            else
+                diag.alpha = 0;
+                diag.beta  = 0;
+            end
+            
+            diag.pdin = 0.5 * obj.rho * V_norm^2;
+            
+            % Auditoria Física (Esforços de fato realizados)
+            f_rotors_real = obj.kf .* (obj.varpi.^2); 
+            wrench_real = obj.G * f_rotors_real; 
+            diag.f_real   = wrench_real(1:3); 
+            diag.tau_real = wrench_real(4:6); 
         end
     end
 end

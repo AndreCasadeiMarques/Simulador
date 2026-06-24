@@ -22,50 +22,50 @@ classdef cControl < handle
         %% CONSTRUTORA
         % Inicializa a controladora carregando os parâmetros físicos, ganhos 
         % de malha e calculando a matriz pseudo-inversa de alocação de controle.
-        function obj = cControl(p)
+        function obj = cControl(sControl)
             % Parâmetros Físicos e Inerciais
-            obj.m  = p.m; 
-            obj.g  = p.g; 
-            obj.Jt = p.Jt;
+            obj.m  = sControl.m; 
+            obj.g  = sControl.g; 
+            obj.Jt = sControl.Jt;
             
             % Ganhos das Malhas de Controle
-            obj.K1_pos = p.K1_pos; 
-            obj.K2_pos = p.K2_pos;
-            obj.K1_att = p.K1_att; 
-            obj.K2_att = p.K2_att;
+            obj.K1_pos = sControl.K1_pos; 
+            obj.K2_pos = sControl.K2_pos;
+            obj.K1_att = sControl.K1_att; 
+            obj.K2_att = sControl.K2_att;
             
             % Parâmetros e Limites dos Atuadores
-            obj.f_min = p.f_min; 
-            obj.f_max = p.f_max; 
-            obj.kf    = p.kf; 
-            obj.km    = p.km;
+            obj.f_min = sControl.f_min; 
+            obj.f_max = sControl.f_max; 
+            obj.kf    = sControl.kf; 
+            obj.km    = sControl.km;
             
-            % Alocador R^5 (Ignora a força em Y, que é resolvida por Rolagem)
-            % Nota: A pseudoinversa distribui os esforços perfeitamente na planta sobreatuada
-            obj.Theta_pinv = pinv(p.G); 
+            % Pseudo-inversa calculada dinamicamente com base na matriz G configurada
+            obj.Theta_pinv = pinv(sControl.G); 
         end
         
         
         %% COMPUTAÇÃO DA LEI DE CONTROLE
-        % Executa as malhas de controle em cascata (Posição -> Atitude), 
-        % resolve a alocação híbrida (transição avião/helicóptero) e 
-        % converte os esforços em comandos de atuação (eta) para os motores.
-        function [eta, log_ctrl] = compute(obj, ref, mav)
-            % Extração da Matriz de Atitude Atual
-            D_bg = q2D(mav.q);
+        % Executa as malhas de controle em cascata (Posição -> Atitude),
+        % resolve a alocação híbrida e converte os esforços em comandos 
+        % de atuação (eta) para os motores. O método é desacoplado da planta.
+        function [eta, log_ctrl] = compute(obj, ref, r, v, q, w, f_aero, tau_aero)
+            % Extração da Matriz de Atitude Atual (quaternião com escalar no final)
+            D_bg = q2D(q);
             
             % --- Malha de Controle de Posição ---
             
             % 1. Aceleração de Comando e Força Inercial Resultante
-            e_r = mav.r - ref.r_bar;
-            e_v = mav.v - ref.v_bar;
+            e_r = r - ref.r_bar;
+            e_v = v - ref.v_bar;
             
             a_com = ref.a_bar - obj.K1_pos * e_r - obj.K2_pos * e_v;
-            f_I_cmd = obj.m * (a_com + [0; 0; obj.g]) - D_bg' * mav.f_aero;
+            f_I_cmd = obj.m * (a_com + [0; 0; obj.g]) - D_bg' * f_aero;
             
             % --- Mapeamento Híbrido (CCA - Veículo Completamente Atuado) ---
             
             % 2. Decomposição de Esforços no Referencial de Guinada (Psi)
+            % Correção: Como rotz() é uma matriz passiva, ela já mapeia do Inercial para o Corpo. Não usar transposta!
             R_z = rotz(ref.alpha_bar(3)); 
             f_psi = R_z * f_I_cmd;  
             
@@ -73,21 +73,24 @@ classdef cControl < handle
             Ty_req = f_psi(2);
             Tz_req = f_psi(3); 
             
-            % 3. Lógica Híbrida Longitudinal (Pitch e Thrust Frontal)
+            % 3. Lógica Híbrida e Desacoplamento Geométrico Exato
             if Tx_req < 0
-                % FREAR: O drone empina (Nose UP) e corta os rotores horizontais
-                theta_des = asin(max(min(Tx_req / max(Tz_req, 0.1), 1), -1));
-                Tx_alloc  = 0; 
+                % FREAR: O drone usa rotores verticais para tudo (Pitch UP + Roll)
+                Tx_alloc = 0;
+                Tz_alloc = norm([Tx_req, Ty_req, Tz_req]); % Empuxo vertical total real
+                
+                theta_des = asin(max(min(Tx_req / max(Tz_alloc, 0.1), 1), -1));
+                phi_des   = atan2(-Ty_req, max(Tz_req, 0.1)); 
             else
-                % ACELERAR: O drone voa nivelado e usa os rotores horizontais
-                theta_des = 0; 
-                Tx_alloc  = Tx_req; 
+                % ACELERAR: Rotores frontais lidam com Tx. Verticais lidam com Ty e Tz.
+                Tx_alloc = Tx_req;
+                Tz_alloc = norm([0, Ty_req, Tz_req]); % Empuxo vertical total real
+                
+                theta_des = 0;
+                phi_des   = atan2(-Ty_req, max(Tz_req, 0.1));
             end
             
-            % 4. Esforço Lateral (Sempre resolvido mecanicamente por Roll LEFT/RIGHT)
-            phi_des = asin(max(min(-Ty_req / max(Tz_req, 0.1), 1), -1));
-            
-            % Matriz de Comando Passiva Desejada (Solo -> Corpo)
+            % 4. Matriz de Comando Passiva Desejada (Solo -> Corpo)
             D_cmd = rotx(phi_des) * roty(theta_des) * rotz(ref.alpha_bar(3));
             
             % --- Malha de Controle de Atitude ---
@@ -100,13 +103,13 @@ classdef cControl < handle
                                    D_tilde(1,2) - D_tilde(2,1)];
             
             % 6. Controle PD Geométrico e Cancelamento Giroscópico de Rotação
-            alpha_com = - obj.K1_att * e_alpha - obj.K2_att * (mav.w - ref.w_bar);
-            tau_b_c = obj.Jt * alpha_com + skew(mav.w) * (obj.Jt * mav.w) - mav.tau_aero;
+            alpha_com = - obj.K1_att * e_alpha - obj.K2_att * (w - ref.w_bar);
+            tau_b_c = obj.Jt * alpha_com + skew(w) * (obj.Jt * w) - tau_aero;
             
             % --- Alocação de Controle e Atuadores ---
             
             % 7. Aplicação da Pseudo-Inversa e Saturação Física dos Rotores
-            u = [Tx_alloc; 0; Tz_req; tau_b_c]; 
+            u = [Tx_alloc; 0; Tz_alloc; tau_b_c]; 
             f_irrestrito = obj.Theta_pinv * u;
             
             f_star = min(max(f_irrestrito, obj.f_min), obj.f_max);
@@ -116,9 +119,9 @@ classdef cControl < handle
             
             % 8. Pacote de Logs de Controle (Para Análise e Plotagem)
             log_ctrl.D_cmd   = D_cmd;                   % Matriz de atitude comandada
-            log_ctrl.f_cmd   = [Tx_alloc; 0; Tz_req];   % Força comandada no corpo (3x1) [N]
+            log_ctrl.f_cmd   = [Tx_alloc; 0; Tz_alloc]; % Força comandada no corpo (3x1) [N]
             log_ctrl.tau_cmd = tau_b_c;                 % Torque comandado (3x1) [N.m]
-            log_ctrl.f_star  = f_star;                  % Empuxo individual exigido após alocação (10x1) [N]
+            log_ctrl.f_star  = f_star;                  % Empuxo individual exigido após alocação [N]
         end
         
     end

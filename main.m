@@ -1,7 +1,7 @@
 %% =====================================================================
 % SIMULADOR GNC PARA eVTOL (GD-350)
 % Descrição: Laço principal de simulação GNC (Guiamento, Navegação e 
-% Controle) utilizando integração de Runge-Kutta de 4ª Ordem.
+% Controle) - Padrão Arquitetural Estrito (IMAV-M) - Zero Cálculos na Main
 % =====================================================================
 
 %% CONFIGURAÇÃO DO AMBIENTE E PARÂMETROS
@@ -11,52 +11,48 @@ clear; clc; close all;
 % Adiciona todas as subpastas ao Path do MATLAB
 addpath(genpath(pwd));
 
-% Gera e carrega a struct de parâmetros (p)
+% Gera e carrega as structs de parâmetros por domínio
 run('parameters.m');
-load('parameters.mat', 'p');
+load('parameters.mat', 'sMav', 'sControl', 'sGuidance', 'sSim');
 
 
 %% INSTANCIAÇÃO DE OBJETOS (INJEÇÃO DE DEPENDÊNCIA)
-% Inicializa os módulos de software da arquitetura do simulador
-mav     = cMav(p);
-ctrl    = cControl(p);
-guide   = cGuidance(p);
+% Inicializa os módulos de software injetando apenas o seu domínio de dados
+mav     = cMav(sMav);
+ctrl    = cControl(sControl);
+guide   = cGuidance(sGuidance);
 plotter = cPlotter();
 
 
-%% CONDIÇÃO INICIAL (TRIMAGEM DE HOVER)
-% Calcula analiticamente o esforço para sustentar o veículo no ar e 
-% inicializa as velocidades angulares dos rotores verticais.
-f_hover   = (p.m * p.g) / (8 * cos(3 * pi/180)); % Empuxo por rotor [N]
-w_hover   = sqrt(f_hover / p.kf(1));             % Rotação de hover [rad/s]
-eta_hover = w_hover / p.km(1);                   % Comando do motor de hover [0 a 1]
+%% CONDIÇÃO INICIAL (TRIMAGEM DE HOVER - DELEGADA À CLASSE DE PLANTA)
+eta_hover = mav.getHoverInput();
 
 % Inicializa rotores 1-8 em hover, e rotores 9-10 (horizontais) em zero
-mav.varpi = [w_hover * ones(8,1); 0; 0];
+mav.varpi = [eta_hover * sMav.km(1) * ones(8,1); 0; 0];
 eta_prev  = [eta_hover * ones(8,1); 0; 0];
 delta_aero = zeros(3,1);                         % Deflexão de superfícies de controle [rad]
 
 
-%% CONFIGURAÇÃO DO TEMPO E PRÉ-ALOCAÇÃO DE MEMÓRIA
-% Define o vetor de tempo discreto e reserva espaço contíguo na memória (RAM)
-% para o histórico de dados (struct 'hist'), evitando lentidão no laço.
-t = 0:p.Ts:p.t_sim;
+%% CONFIGURAÇÃO DO TEMPO E PRÉ-ALOCAÇÃO DE MEMÓRIA (LOGGING PASSIVO)
+t = 0:sSim.Ts:sSim.t_sim;
 N = length(t);
 
 % --- Estados da Planta e Referências ---
 hist.r       = zeros(3, N);     % Posição real [m]
 hist.r_bar   = zeros(3, N);     % Posição de referência (Guiamento) [m]
 hist.v       = zeros(3, N);     % Velocidade linear [m/s]
-hist.q       = zeros(4, N);     % Atitude em quatérnio
-hist.q_bar   = zeros(4, N);     % Atitude de referência comandada
+hist.v_bar   = zeros(3, N);     % Velocidade de referência [m/s]
+hist.a_bar   = zeros(3, N);     % Aceleração de referência [m/s^2]
+hist.q       = zeros(4, N);     % Atitude em quatérnio (escalar no final)
+hist.q_bar   = zeros(4, N);     % Atitude de referência comandada (escalar no final)
 hist.w       = zeros(3, N);     % Velocidade angular [rad/s]
 
 % --- Atuadores e Controle ---
-hist.varpi   = zeros(p.n_r, N); % Rotação real dos motores [rad/s]
-hist.eta     = zeros(p.n_r, N); % Comando enviado aos motores [0 a 1]
+hist.varpi   = zeros(sSim.n_r, N); % Rotação real dos motores [rad/s]
+hist.eta     = zeros(sSim.n_r, N); % Comando enviado aos motores [0 a 1]
 hist.f_cmd   = zeros(3, N);     % Força resultante comandada [N]
 hist.tau_cmd = zeros(3, N);     % Torque resultante comandado [N.m]
-hist.f_star  = zeros(p.n_r, N); % Empuxo ideal exigido por rotor [N]
+hist.f_star  = zeros(sSim.n_r, N); % Empuxo ideal exigido por rotor [N]
 
 % --- Diagnóstico Aerodinâmico e Físico ---
 hist.alpha   = zeros(1, N);     % Ângulo de ataque [rad]
@@ -66,11 +62,11 @@ hist.f_real  = zeros(3, N);     % Força fisicamente realizada [N]
 hist.tau_real= zeros(3, N);     % Torque fisicamente realizado [N.m]
 
 
-%% LAÇO PRINCIPAL DE SIMULAÇÃO (DISCRETE-TIME LOOP)
+%% LAÇO PRINCIPAL DE SIMULAÇÃO (DISCRETE-TIME LOOP - MAESTRO)
 disp('>> Simulando...');
 
 for k = 1:N
-    % 1. Log dos Estados Atuais
+    % 1. Log dos Estados Atuais (Feedback e Logging Passivos)
     hist.r(:, k)     = mav.r;
     hist.v(:, k)     = mav.v;
     hist.q(:, k)     = mav.q; 
@@ -83,11 +79,13 @@ for k = 1:N
     % 3. Guiamento (Geração de Trajetória)
     ref = guide.getCommand(mav.r);
     hist.r_bar(:, k) = ref.r_bar;
+    hist.v_bar(:, k) = ref.v_bar;
+    hist.a_bar(:, k) = ref.a_bar;
     
-    % 4. Controle (Cálculo de Ação e Alocação)
-    [eta, log_ctrl] = ctrl.compute(ref, mav);
+    % 4. Controle (Cálculo de Ação e Alocação) - PLANTA DESACOPLADA DO CONTROLADOR
+    [eta, log_ctrl] = ctrl.compute(ref, mav.r, mav.v, mav.q, mav.w, mav.f_aero, mav.tau_aero);
     
-    % 5. Log de Ações do Controlador
+    % 5. Log de Ações do Controlador (Logging Passivo)
     hist.eta(:, k)     = eta; 
     hist.q_bar(:, k)   = D2q(log_ctrl.D_cmd); % Conversão DCM -> Quatérnio
     hist.f_cmd(:, k)   = log_ctrl.f_cmd;
@@ -98,37 +96,19 @@ for k = 1:N
     mav.integrate(eta, delta_aero);
     eta_prev = eta; % Armazena o comando para causalidade do motor no próximo passo
     
-    % --- Extração de Diagnósticos e Pós-Processamento Interno ---
-    
-    % 7. Diagnóstico Aerodinâmico (Assumindo Vento Inercial = 0)
-    D_bg = q2D(mav.q);
-    v_body = D_bg * mav.v; 
-    V_norm = norm(v_body);
-    
-    if V_norm > 0.1 % Filtro contra singularidade em baixas velocidades
-        hist.alpha(1, k) = atan2(v_body(3), v_body(1));
-        hist.beta(1, k)  = asin(max(min(v_body(2)/V_norm, 1), -1));
-    else
-        hist.alpha(1, k) = 0;
-        hist.beta(1, k)  = 0;
-    end
-    
-    rho_ar = 1.225; 
-    if isfield(p, 'rho'), rho_ar = p.rho; end 
-    hist.pdin(1, k) = 0.5 * rho_ar * V_norm^2;
-    
-    % 8. Auditoria Física (Esforços de fato realizados pelos atuadores)
-    f_rotors_real = p.kf .* (mav.varpi.^2); 
-    wrench_real = p.G * f_rotors_real; 
-    
-    hist.f_real(:, k)   = wrench_real(1:3); 
-    hist.tau_real(:, k) = wrench_real(4:6); 
+    % 7. Diagnóstico Aerodinâmico e Auditoria Física (Logging Passivo de Caixas Pretas)
+    diag_data = mav.getDiagnostics();
+    hist.alpha(1, k)    = diag_data.alpha;
+    hist.beta(1, k)     = diag_data.beta;
+    hist.pdin(1, k)     = diag_data.pdin;
+    hist.f_real(:, k)   = diag_data.f_real;
+    hist.tau_real(:, k) = diag_data.tau_real;
 end
 
 
 %% PÓS-PROCESSAMENTO E EXPORTAÇÃO
 % Salva os resultados para análise e aciona o módulo de plotagem
-save('Outputs/sim_data.mat', 'hist', 't', 'p');
+save('Outputs/sim_data.mat', 'hist', 't', 'sMav', 'sControl', 'sGuidance', 'sSim');
 disp('>> Simulação concluída. Dados salvos em Outputs/sim_data.mat');
 
 % Compila matriz para exportação externa (ex: Python, Excel)
@@ -138,5 +118,5 @@ dados_exportacao = [t', hist.r', hist.r_bar', hist.v', hist.q', hist.q_bar', ...
                 
 writematrix(dados_exportacao, 'Outputs/sim_data.csv');
 
-% Geração de Gráficos
+% Geração de Gráficos (Delegação Total de Plotagem)
 plotter.plotAll(t, hist);

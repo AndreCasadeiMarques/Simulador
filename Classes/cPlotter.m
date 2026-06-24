@@ -21,6 +21,17 @@ classdef cPlotter < handle
                 mkdir('Outputs');
             end
             
+            % --- Decimação (Downsampling) para Performance Gráfica ---
+            % O exportgraphics com 'ContentType', 'vector' é extremamente pesado 
+            % para 20.000+ pontos. Reduziremos para ~10-50ms de resolução gráfica.
+            step = max(1, floor(0.05 / (t(2) - t(1)))); % 50ms resolution
+            
+            t = t(1:step:end);
+            campos = fieldnames(hist);
+            for i = 1:numel(campos)
+                hist.(campos{i}) = hist.(campos{i})(:, 1:step:end);
+            end
+            
             % --- Pré-Processamento: Quatérnio para Euler [graus] ---
             N = length(t); 
             Euler = zeros(3, N);
@@ -173,6 +184,30 @@ classdef cPlotter < handle
             title('Pressão Dinâmica Durante o Voo');
             
             exportgraphics(f9, 'Outputs/9_Pressao_Dinamica.pdf', 'ContentType', 'vector');
+            
+            %% FIGURA 10: MÉTRICAS DE GUIAMENTO (DESEMPENHO HÍBRIDO)
+            f10 = figure('Name', 'Métricas de Guiamento', 'NumberTitle', 'off');
+            
+            % Erro de Rastreamento (Norma do erro de posição)
+            e_r = sqrt(sum((hist.r - hist.r_bar).^2, 1));
+            
+            % Norma das referências geradas pelo Guiamento
+            norm_v_bar = sqrt(sum(hist.v_bar.^2, 1));
+            norm_a_bar = sqrt(sum(hist.a_bar.^2, 1));
+            
+            subplot(3,1,1);
+            plot(t, e_r, 'r', 'LineWidth', 1.5);
+            grid on; ylabel('Erro (m)'); title('Erro de Rastreamento de Posição (||r - r_{bar}||)');
+            
+            subplot(3,1,2);
+            plot(t, norm_v_bar, 'b', 'LineWidth', 1.5);
+            grid on; ylabel('Velocidade (m/s)'); title('Velocidade Comandada (||v_{bar}||)');
+            
+            subplot(3,1,3);
+            plot(t, norm_a_bar, 'g', 'LineWidth', 1.5);
+            grid on; ylabel('Aceleração (m/s^2)'); xlabel('Tempo [s]'); title('Esforço de Guiamento (||a_{bar}||)');
+            
+            exportgraphics(f10, 'Outputs/10_Guiamento.pdf', 'ContentType', 'vector');
             
             disp('>> Gráficos exibidos interativamente e PDFs salvos na pasta Outputs.');
         end
