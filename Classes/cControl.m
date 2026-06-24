@@ -12,10 +12,14 @@ classdef cControl < handle
         % Matriz de Alocação
         Theta_pinv    % pseudo-inversa da matriz de alocação de controle (G^+)
         
-        % Limites e Parâmetros dos Atuadores
         f_min; f_max; % limites de empuxo mínimo e máximo exigido por rotor [N]
         kf            % coeficiente de empuxo dos rotores (k_f)
         km            % ganho dos motores (k_m)
+        
+        % Limites de Segurança do Controlador
+        max_tilt_ang  % saturação de Pitch/Roll em queda livre [rad]
+        Tz_min        % limite para denominador em atan2 [N]
+        trace_min     % limite inferior de traço para vetor Gibbs
     end
     
     methods   
@@ -39,6 +43,11 @@ classdef cControl < handle
             obj.f_max = sControl.f_max; 
             obj.kf    = sControl.kf; 
             obj.km    = sControl.km;
+            
+            % Limites de Segurança do Controlador
+            obj.max_tilt_ang = sControl.max_tilt_ang;
+            obj.Tz_min       = sControl.Tz_min;
+            obj.trace_min    = sControl.trace_min;
             
             % Pseudo-inversa calculada dinamicamente com base na matriz G configurada
             obj.Theta_pinv = pinv(sControl.G); 
@@ -84,21 +93,21 @@ classdef cControl < handle
             Tz_req = f_psi(3); 
             
             % 3. Lógica Híbrida e Desacoplamento Geométrico Exato
-            max_ang = 30 * pi/180; % Saturação severa (30 graus) para evitar singularidades em queda livre
+            max_ang = obj.max_tilt_ang;
             if ref.flight_mode == 1 || Tx_req < 0
                 % FREAR ou MULTICÓPTERO: O drone usa rotores verticais para tudo (Pitch UP + Roll)
                 Tx_alloc = 0;
                 Tz_alloc = norm([Tx_req, Ty_req, Tz_req]); % Empuxo vertical total real
                 
-                theta_des = max(min(atan2(Tx_req, max(Tz_alloc, 0.1)), max_ang), -max_ang);
-                phi_des   = max(min(atan2(-Ty_req, max(Tz_req, 0.1)), max_ang), -max_ang);
+                theta_des = max(min(atan2(Tx_req, max(Tz_alloc, obj.Tz_min)), max_ang), -max_ang);
+                phi_des   = max(min(atan2(-Ty_req, max(Tz_req, obj.Tz_min)), max_ang), -max_ang);
             else
                 % ACELERAR (Híbrido): Rotores frontais lidam com Tx. Verticais lidam com Ty e Tz.
                 Tx_alloc = Tx_req;
                 Tz_alloc = norm([0, Ty_req, Tz_req]); % Empuxo vertical total real
                 
                 theta_des = 0;
-                phi_des   = max(min(atan2(-Ty_req, max(Tz_req, 0.1)), max_ang), -max_ang);
+                phi_des   = max(min(atan2(-Ty_req, max(Tz_req, obj.Tz_min)), max_ang), -max_ang);
             end
             
             % 4. Matriz de Comando Passiva Desejada (Solo -> Corpo)
@@ -108,7 +117,7 @@ classdef cControl < handle
             
             % 5. Erro de Atitude (Mapeado no Vetor de Gibbs para SO(3))
             D_tilde = D_bg * D_cmd';
-            den = max(1 + trace(D_tilde), 1e-4);
+            den = max(1 + trace(D_tilde), obj.trace_min);
             e_alpha = (1 / den) * [D_tilde(2,3) - D_tilde(3,2);
                                    D_tilde(3,1) - D_tilde(1,3);
                                    D_tilde(1,2) - D_tilde(2,1)];

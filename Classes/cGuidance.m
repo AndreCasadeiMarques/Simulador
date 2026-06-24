@@ -8,7 +8,8 @@ classdef cGuidance < handle
         mode        % modo de voo ('armado', 'multicoptero', 'transicao')
         
         % Parâmetros (Polinômio Minimum Jerk)
-        v_avg       % velocidade escalar média [m/s]
+        v_avg         % velocidade escalar média de decolagem [m/s]
+        v_avg_landing % velocidade escalar média de pouso [m/s]
         
         % Parâmetros (Campo Vetorial - Cruzeiro)
         R_acc         % raio de wayset de cruzeiro [m]
@@ -16,6 +17,11 @@ classdef cGuidance < handle
         v_max         % velocidade máxima [m/s]
         a_max       % aceleração máxima [m/s^2]
         wn_ref      % frequência natural da malha proporcional [rad/s]
+        
+        % Limites de Segurança e Tolerância
+        v_stop_tol    % velocidade para considerar parada total [m/s]
+        yaw_rate_max  % saturação de velocidade de guinada [rad/s]
+        tj_min        % tempo mínimo de trajetória Minimum Jerk [s]
         
         % Estados do Drone Virtual (Cruzeiro)
         r_ref       
@@ -40,6 +46,7 @@ classdef cGuidance < handle
             obj.W_r     = sGuidance.W_r; 
             obj.W_alpha = sGuidance.W_alpha;
             obj.v_avg   = sGuidance.v_avg; 
+            obj.v_avg_landing = sGuidance.v_avg_landing;
             obj.Ts      = sGuidance.Ts;
             obj.mode    = sGuidance.mode;
             
@@ -48,6 +55,11 @@ classdef cGuidance < handle
             obj.v_max         = sGuidance.v_max;
             obj.a_max   = sGuidance.a_max;
             obj.wn_ref  = sGuidance.wn_ref;
+            
+            % Limites de Segurança e Tolerância do Guiamento
+            obj.v_stop_tol   = sGuidance.v_stop_tol;
+            obj.yaw_rate_max = sGuidance.yaw_rate_max;
+            obj.tj_min       = sGuidance.tj_min;
             
             obj.idx = 1; 
             obj.n_w = size(obj.W_r, 2);
@@ -65,7 +77,7 @@ classdef cGuidance < handle
             
             if obj.n_w > 1
                 dist = norm(obj.W_r(:, 2) - obj.r_0);
-                obj.t_j = max(dist / obj.v_avg, 0.1);
+                obj.t_j = max(dist / obj.v_avg, obj.tj_min);
                 obj.dir_W = (obj.W_r(:,2) - obj.W_r(:,1)) / norm(obj.W_r(:,2) - obj.W_r(:,1));
             else
                 obj.t_j = 1.0; 
@@ -153,14 +165,13 @@ classdef cGuidance < handle
                 % Transição por entrada na esfera (Wayset)
                 if alvo_idx == obj.n_w - 1
                     % Pré-pouso: Só transita se o DRONE FÍSICO estiver estacionário no alvo
-                    if norm(r_atual - wp_alvo) < current_R_acc && norm(v_atual) < 0.5
+                    if norm(r_atual - wp_alvo) < current_R_acc && norm(v_atual) < obj.v_stop_tol
                         % Início da Fase de Pouso
                         obj.r_0 = r_atual; % Pouso começa estritamente de onde o drone parou
                         obj.alpha_0 = obj.alpha_ref;
                         obj.t_traj = 0.0;
                         dist = norm(obj.W_r(:, obj.n_w) - obj.r_0);
-                        v_avg_landing = 1.0; 
-                        obj.t_j = max(dist / v_avg_landing, 0.1);
+                        obj.t_j = max(dist / obj.v_avg_landing, obj.tj_min);
                         obj.idx = obj.n_w;
                         % Recalcula já no estado de pouso
                         ref = obj.getCommand(r_atual, v_atual); 
@@ -205,7 +216,7 @@ classdef cGuidance < handle
                 erro_alpha = atan2(sin(erro_alpha), cos(erro_alpha));
                 
                 w_des = (obj.wn_ref * 3.0) * erro_alpha;
-                w_max_lim = 30 * (pi/180); % Aumentado para permitir guinadas mais ágeis
+                w_max_lim = obj.yaw_rate_max;
                 if norm(w_des) > w_max_lim
                     w_des = w_max_lim * (w_des / norm(w_des));
                 end

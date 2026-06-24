@@ -28,6 +28,9 @@ classdef cMav < handle
         Cm0; Cma; Cmq; Cmde;
         Cnb; Cnp; Cnr; Cnda; Cndr;
         
+        % Limites e Parâmetros de Diagnóstico/Física
+        v_aero_min; v_diag_min; alpha_max; beta_max; ground_friction; gamma_v;
+        
         % Variáveis de Estado
         r         % posição no referencial inercial 3x1 [m]
         v         % velocidade linear 3x1 [m/s]
@@ -61,6 +64,11 @@ classdef cMav < handle
             obj.Cm0 = sMav.Cm0; obj.Cma = sMav.Cma; obj.Cmq = sMav.Cmq; obj.Cmde = sMav.Cmde;
             obj.Cnb = sMav.Cnb; obj.Cnp = sMav.Cnp; obj.Cnr = sMav.Cnr; obj.Cnda = sMav.Cnda; obj.Cndr = sMav.Cndr;
             
+            % Limites e Parâmetros Especiais
+            obj.v_aero_min = sMav.v_aero_min; obj.v_diag_min = sMav.v_diag_min;
+            obj.alpha_max = sMav.alpha_max; obj.beta_max = sMav.beta_max;
+            obj.ground_friction = sMav.ground_friction; obj.gamma_v = sMav.gamma_v;
+            
             % Inicialização das Variáveis de Estado
             obj.r = zeros(3,1); 
             obj.v = zeros(3,1); 
@@ -84,11 +92,11 @@ classdef cMav < handle
             v_b = D_bg * obj.v;
             v_norm = norm(v_b);
             
-            % --- Aerodinâmica (Avaliada apenas acima de 2.0 m/s) ---
-            if v_b(1) > 2.0 
+            % --- Aerodinâmica ---
+            if v_b(1) > obj.v_aero_min 
                 % Correção Z-UP e extração de ângulos aerodinâmicos saturados
-                alpha = max(min(atan2(-v_b(3), v_b(1)), 20*pi/180), -20*pi/180);
-                beta  = max(min(asin(v_b(2) / v_norm), 10*pi/180), -10*pi/180);
+                alpha = max(min(atan2(-v_b(3), v_b(1)), obj.alpha_max), -obj.alpha_max);
+                beta  = max(min(asin(v_b(2) / v_norm), obj.beta_max), -obj.beta_max);
                 
                 % Matriz de rotação Vento -> Corpo
                 D_eb = rotx(0)*roty(alpha)*rotz(beta); 
@@ -155,7 +163,7 @@ classdef cMav < handle
                 end
                 
                 % Atrito de Solo (Evitar deslizamento infinito no gelo virtual)
-                obj.v(1:2) = obj.v(1:2) * 0.9;
+                obj.v(1:2) = obj.v(1:2) * obj.ground_friction;
             end
             
             obj.q = xn(7:10) / norm(xn(7:10)); % Normalização de segurança do quatérnio
@@ -205,7 +213,7 @@ classdef cMav < handle
         %% HOVER INPUT
         % Calcula analiticamente a entrada de comando para a condição de hover.
         function eta_hover = getHoverInput(obj)
-            f_hover   = (obj.m * obj.g) / (8 * cos(3 * pi/180)); % Empuxo por rotor [N]
+            f_hover   = (obj.m * obj.g) / (8 * cos(obj.gamma_v)); % Empuxo por rotor [N]
             w_hover   = sqrt(f_hover / obj.kf(1));             % Rotação de hover [rad/s]
             eta_hover = w_hover / obj.km(1);                   % Comando do motor
         end
@@ -219,7 +227,7 @@ classdef cMav < handle
             v_body = D_bg * obj.v; 
             V_norm = norm(v_body);
             
-            if V_norm > 0.1
+            if V_norm > obj.v_diag_min
                 diag.alpha = atan2(v_body(3), v_body(1));
                 diag.beta  = asin(max(min(v_body(2)/V_norm, 1), -1));
             else

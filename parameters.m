@@ -9,7 +9,7 @@ m_val       = 390.0;                      % massa total da aeronave [kg]
 g_val       = 9.80665;                    % aceleração da gravidade [m/s^2]
 n_r_val     = 10;                         % número total de rotores
 Ts_val      = 0.001;                      % passo de integração [s]
-t_sim_val   = 250.0;                       % tempo total de simulação [s]
+t_sim_val   = 190.0;                       % tempo total de simulação [s]
 
 % Matriz de inércia do corpo (sem os rotores) [kg.m^2]
 Jb = diag([258.9, 331.8, 575.4]); 
@@ -21,7 +21,7 @@ Jr_val = 0.12 * ones(n_r_val, 1);
 mum_val = 0.25 * ones(n_r_val, 1);
 km_val = 1000 * ones(n_r_val, 1);
 kf_val = (1115 / 1000^2) * ones(n_r_val, 1);
-k_val = 0.02 * ones(n_r_val, 1);
+k_val = 0.0683 * ones(n_r_val, 1);
 
 w_min_val = [0 * ones(8, 1); 0; 0];
 w_max_val = 1000 * ones(n_r_val, 1);
@@ -105,10 +105,18 @@ sMav.D_rb   = D_rb_val;
 sMav.Js     = Js_val;
 sMav.G      = G_val;
 
-% Parâmetros Aerodinâmicos
-sMav.rho = 1.225;
-sMav.Aa  = 7.34;
-sMav.c   = 0.7917;
+% Parâmetros Aerodinâmica
+sMav.rho = 1.225; % densidade do ar [kg/m^3]
+sMav.Aa  = 2.0;   % área de referência [m^2]
+sMav.c   = 0.5;   % corda média aerodinâmica [m]
+
+% Limites e Parâmetros de Diagnóstico/Física
+sMav.v_aero_min = 2.0; % velocidade mínima para cálculo aerodinâmico [m/s]
+sMav.v_diag_min = 0.1; % velocidade mínima para diagnóstico de ângulos [m/s]
+sMav.alpha_max  = 20 * (pi/180); % limite de saturação numérico de ataque [rad]
+sMav.beta_max   = 10 * (pi/180); % limite de saturação numérico de derrapagem [rad]
+sMav.ground_friction = 0.9;      % fator de decaimento de velocidade XY no solo
+sMav.gamma_v    = 3 * (pi/180);  % cant angle dos rotores verticais [rad]
 
 sMav.CD0 =  0.0312;   sMav.CDa =  0.0;      sMav.CDq = -0.5926;   sMav.CDde =  0.0084;
 sMav.CYb = -0.4727;   sMav.CYp =  0.0958;   sMav.CYr =  0.1665;   sMav.CYda =  0.0;      sMav.CYdr =  0.0034;
@@ -129,6 +137,10 @@ sControl.kf     = kf_val;
 sControl.km     = km_val;
 sControl.G      = G_val;
 
+% Parâmetros e Limites de Segurança do Controlador
+sControl.max_tilt_ang = 30 * (pi/180); % saturação de Pitch/Roll em queda livre [rad]
+sControl.Tz_min       = 0.1;           % limite para denominador em atan2 [N]
+sControl.trace_min    = 1e-4;          % limite inferior de traço para vetor Gibbs
 % Ganhos de Controle e Sintonia (wn e zeta)
 wn_pos = 0.2;
 wn_att = 1.0;
@@ -146,12 +158,18 @@ sGuidance.Ts      = Ts_val;
 sGuidance.mode    = 'multicoptero'; % 'armado', 'multicoptero', 'transicao'
 sGuidance.W_r     = [0,0,0; 0,0,100; 100,0,100; 100,100,100; 0,100,100; 0,0,100; 0,0,0]';
 sGuidance.W_alpha = zeros(3, size(sGuidance.W_r, 2));
-sGuidance.v_avg   = 5.0; % velocidade média do Minimum Jerk [m/s]
+sGuidance.v_avg   = 5.0; % velocidade média do Minimum Jerk de decolagem [m/s]
+sGuidance.v_avg_landing = 5.0; % velocidade média do Minimum Jerk de pouso [m/s]
 sGuidance.R_acc   = 5.0; % raio de wayset de cruzeiro [m]
 sGuidance.R_acc_landing = 0.8; % raio de wayset apertado para o pré-pouso [m]
 sGuidance.v_max   = 5.0; % velocidade máxima de cruzeiro [m/s]
 sGuidance.a_max   = 0.5; % aceleração máxima [m/s^2] (Reduzido para o drone real acompanhar)
 sGuidance.wn_ref  = 0.2; % frequência do campo vetorial (Reduzido para parear com wn_pos)
+
+% Limites de Segurança e Tolerância do Guiamento
+sGuidance.v_stop_tol   = 0.5; % velocidade para considerar parada total [m/s]
+sGuidance.yaw_rate_max = 30 * (pi/180); % saturação de velocidade de guinada [rad/s]
+sGuidance.tj_min       = 0.1; % tempo mínimo de trajetória Minimum Jerk [s]
 
 
 %% 5. SALVAMENTO E EXPORTAÇÃO
