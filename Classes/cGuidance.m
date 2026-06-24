@@ -11,8 +11,9 @@ classdef cGuidance < handle
         v_avg       % velocidade escalar média [m/s]
         
         % Parâmetros (Campo Vetorial - Cruzeiro)
-        R_acc       % raio de wayset de cruzeiro [m]
-        v_max       % velocidade máxima [m/s]
+        R_acc         % raio de wayset de cruzeiro [m]
+        R_acc_landing % raio de wayset apertado para o pré-pouso [m]
+        v_max         % velocidade máxima [m/s]
         a_max       % aceleração máxima [m/s^2]
         wn_ref      % frequência natural da malha proporcional [rad/s]
         
@@ -22,6 +23,7 @@ classdef cGuidance < handle
         a_ref       
         alpha_ref   
         w_ref       
+        dir_W       % direção atual do segmento do campo vetorial
         
         % Estados do Polinômio (Decolagem/Pouso)
         r_0         % posição inicial [m]
@@ -41,8 +43,9 @@ classdef cGuidance < handle
             obj.Ts      = sGuidance.Ts;
             obj.mode    = sGuidance.mode;
             
-            obj.R_acc   = sGuidance.R_acc;
-            obj.v_max   = sGuidance.v_max;
+            obj.R_acc         = sGuidance.R_acc;
+            obj.R_acc_landing = sGuidance.R_acc_landing;
+            obj.v_max         = sGuidance.v_max;
             obj.a_max   = sGuidance.a_max;
             obj.wn_ref  = sGuidance.wn_ref;
             
@@ -63,13 +66,18 @@ classdef cGuidance < handle
             if obj.n_w > 1
                 dist = norm(obj.W_r(:, 2) - obj.r_0);
                 obj.t_j = max(dist / obj.v_avg, 0.1);
+                obj.dir_W = (obj.W_r(:,2) - obj.W_r(:,1)) / norm(obj.W_r(:,2) - obj.W_r(:,1));
             else
                 obj.t_j = 1.0; 
             end
         end
         
-        %% GERAÇÃO DE COMANDOS E TRAJETÓRIA (HÍBRIDA)
-        function ref = getCommand(obj, r_atual)
+        %% OBTENÇÃO DOS COMANDOS DE REFERÊNCIA (MÁQUINA DE ESTADOS)
+        % Recebe a posição e velocidade real do drone e calcula a referência de 
+        % posição, velocidade e aceleração comandadas, além da atitude.
+        function ref = getCommand(obj, r_atual, v_atual)
+            % Prepara a struct de saída
+            ref = struct();
             
             if obj.idx == 1
                 %% ---------------- FASE 1: TAKEOFF (Minimum Jerk) ----------------
@@ -97,6 +105,7 @@ classdef cGuidance < handle
                 erro_alpha = atan2(sin(erro_alpha), cos(erro_alpha));
                 ref.alpha_bar = obj.alpha_0 + lambda * erro_alpha;
                 ref.w_bar     = lambda_dot * erro_alpha;
+                ref.flight_mode = 1; % Multicóptero
                 
                 % Transição para Cruzeiro (Gatilho de Tempo)
                 if obj.t_traj >= obj.t_j
@@ -107,6 +116,10 @@ classdef cGuidance < handle
                     obj.a_ref = zeros(3,1);
                     obj.alpha_ref = alpha_alvo;
                     obj.w_ref = zeros(3,1);
+                    
+                    if obj.idx < obj.n_w - 1
+                        obj.dir_W = (obj.W_r(:, obj.idx+1) - obj.W_r(:, obj.idx)) / norm(obj.W_r(:, obj.idx+1) - obj.W_r(:, obj.idx));
+                    end
                 end
                 
             elseif obj.idx > 1 && obj.idx < obj.n_w - 1
@@ -115,31 +128,49 @@ classdef cGuidance < handle
                 wp_alvo = obj.W_r(:, alvo_idx);
                 alpha_alvo = obj.W_alpha(:, alvo_idx);
                 
-                % Define tamanho do Wayset: "Anchoring" relaxado antes de pousar, Fly-by para os demais
                 if alvo_idx == obj.n_w - 1
-                    current_R_acc = 1.5; 
+                    % Pré-pouso: Ponto de Atração (Parada Total no Ar)
+                    current_R_acc = obj.R_acc_landing; 
+                    v_des = - obj.wn_ref * (obj.r_ref - wp_alvo);
+                    
+                    if norm(v_des) > obj.v_max
+                        v_des = obj.v_max * (v_des / norm(v_des));
+                    end
                 else
+                    % Cruzeiro: Campo Vetorial "Fly-by" (Passagem)
                     current_R_acc = obj.R_acc; 
+                    
+                    % Erro de posição em relação à linha do segmento
+                    e_p = (obj.r_ref - wp_alvo) - dot(obj.r_ref - wp_alvo, obj.dir_W) * obj.dir_W;
+                    
+                    % Campo Vetorial (Virtual Drone Velocity Demand)
+                    v_des = - obj.wn_ref * e_p + obj.v_max * obj.dir_W;
+                    if norm(v_des) > obj.v_max
+                        v_des = obj.v_max * (v_des / norm(v_des));
+                    end
                 end
                 
                 % Transição por entrada na esfera (Wayset)
-                if norm(r_atual - wp_alvo) < current_R_acc
-                    obj.idx = obj.idx + 1;
-                    
-                    if obj.idx == obj.n_w - 1
+                if alvo_idx == obj.n_w - 1
+                    % Pré-pouso: Só transita se o DRONE FÍSICO estiver estacionário no alvo
+                    if norm(r_atual - wp_alvo) < current_R_acc && norm(v_atual) < 0.5
                         % Início da Fase de Pouso
-                        obj.r_0 = wp_alvo; % Zera a velocidade matemática ancorando no waypoint
-                        obj.alpha_0 = alpha_alvo;
+                        obj.r_0 = r_atual; % Pouso começa estritamente de onde o drone parou
+                        obj.alpha_0 = obj.alpha_ref;
                         obj.t_traj = 0.0;
                         dist = norm(obj.W_r(:, obj.n_w) - obj.r_0);
-                        obj.t_j = max(dist / obj.v_avg, 0.1);
+                        v_avg_landing = 1.0; 
+                        obj.t_j = max(dist / v_avg_landing, 0.1);
+                        obj.idx = obj.n_w;
                         % Recalcula já no estado de pouso
-                        ref = obj.getCommand(r_atual); 
+                        ref = obj.getCommand(r_atual, v_atual); 
                         return;
-                    else
-                        % Continua no cruzeiro para o próximo alvo
-                        wp_alvo = obj.W_r(:, obj.idx + 1);
-                        alpha_alvo = obj.W_alpha(:, obj.idx + 1);
+                    end
+                else
+                    % Cruzeiro: Transita quando o DRONE VIRTUAL atinge o wayset (Fly-by)
+                    if norm(obj.r_ref - wp_alvo) < current_R_acc
+                        obj.idx = obj.idx + 1;
+                        obj.dir_W = (obj.W_r(:, obj.idx+1) - obj.W_r(:, obj.idx)) / norm(obj.W_r(:, obj.idx+1) - obj.W_r(:, obj.idx));
                     end
                 end
                 
@@ -186,6 +217,7 @@ classdef cGuidance < handle
                 
                 ref.alpha_bar = obj.alpha_ref;
                 ref.w_bar     = obj.w_ref;
+                ref.flight_mode = 2; % Híbrido
                 
             else
                 %% ---------------- FASE 3: POUSO (Minimum Jerk) ----------------
@@ -218,6 +250,12 @@ classdef cGuidance < handle
                 erro_alpha = atan2(sin(erro_alpha), cos(erro_alpha));
                 ref.alpha_bar = obj.alpha_0 + lambda * erro_alpha;
                 ref.w_bar     = lambda_dot * erro_alpha;
+                
+                if obj.t_traj >= obj.t_j
+                    ref.flight_mode = 3; % Desarmado (Motores Cortados)
+                else
+                    ref.flight_mode = 1; % Multicóptero (Descendo)
+                end
             end
         end
     end

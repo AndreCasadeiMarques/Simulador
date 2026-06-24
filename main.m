@@ -77,7 +77,7 @@ for k = 1:N
     mav.updateDisturbances(eta_prev, delta_aero);
     
     % 3. Guiamento (Geração de Trajetória)
-    ref = guide.getCommand(mav.r);
+    ref = guide.getCommand(mav.r, mav.v);
     hist.r_bar(:, k) = ref.r_bar;
     hist.v_bar(:, k) = ref.v_bar;
     hist.a_bar(:, k) = ref.a_bar;

@@ -153,6 +153,9 @@ classdef cMav < handle
                 if obj.v(3) < 0
                     obj.v(3) = 0; % Zera velocidade de descida se bateu no chão
                 end
+                
+                % Atrito de Solo (Evitar deslizamento infinito no gelo virtual)
+                obj.v(1:2) = obj.v(1:2) * 0.9;
             end
             
             obj.q = xn(7:10) / norm(xn(7:10)); % Normalização de segurança do quatérnio

@@ -50,6 +50,16 @@ classdef cControl < handle
         % resolve a alocação híbrida e converte os esforços em comandos 
         % de atuação (eta) para os motores. O método é desacoplado da planta.
         function [eta, log_ctrl] = compute(obj, ref, r, v, q, w, f_aero, tau_aero)
+            % --- Desarmamento e Corte de Motores no Pouso ---
+            if ref.flight_mode == 3
+                eta = zeros(10, 1);
+                log_ctrl.D_cmd   = eye(3);
+                log_ctrl.f_cmd   = zeros(3,1);
+                log_ctrl.tau_cmd = zeros(3,1);
+                log_ctrl.f_star  = zeros(10,1);
+                return;
+            end
+            
             % Extração da Matriz de Atitude Atual (quaternião com escalar no final)
             D_bg = q2D(q);
             
@@ -74,20 +84,21 @@ classdef cControl < handle
             Tz_req = f_psi(3); 
             
             % 3. Lógica Híbrida e Desacoplamento Geométrico Exato
-            if Tx_req < 0
-                % FREAR: O drone usa rotores verticais para tudo (Pitch UP + Roll)
+            max_ang = 30 * pi/180; % Saturação severa (30 graus) para evitar singularidades em queda livre
+            if ref.flight_mode == 1 || Tx_req < 0
+                % FREAR ou MULTICÓPTERO: O drone usa rotores verticais para tudo (Pitch UP + Roll)
                 Tx_alloc = 0;
                 Tz_alloc = norm([Tx_req, Ty_req, Tz_req]); % Empuxo vertical total real
                 
-                theta_des = asin(max(min(Tx_req / max(Tz_alloc, 0.1), 1), -1));
-                phi_des   = atan2(-Ty_req, max(Tz_req, 0.1)); 
+                theta_des = max(min(atan2(Tx_req, max(Tz_alloc, 0.1)), max_ang), -max_ang);
+                phi_des   = max(min(atan2(-Ty_req, max(Tz_req, 0.1)), max_ang), -max_ang);
             else
-                % ACELERAR: Rotores frontais lidam com Tx. Verticais lidam com Ty e Tz.
+                % ACELERAR (Híbrido): Rotores frontais lidam com Tx. Verticais lidam com Ty e Tz.
                 Tx_alloc = Tx_req;
                 Tz_alloc = norm([0, Ty_req, Tz_req]); % Empuxo vertical total real
                 
                 theta_des = 0;
-                phi_des   = atan2(-Ty_req, max(Tz_req, 0.1));
+                phi_des   = max(min(atan2(-Ty_req, max(Tz_req, 0.1)), max_ang), -max_ang);
             end
             
             % 4. Matriz de Comando Passiva Desejada (Solo -> Corpo)

@@ -8,8 +8,8 @@
 m_val       = 390.0;                      % massa total da aeronave [kg]
 g_val       = 9.80665;                    % aceleração da gravidade [m/s^2]
 n_r_val     = 10;                         % número total de rotores
-Ts_val      = 0.002;                      % passo de integração [s]
-t_sim_val   = 140.0;                       % tempo total de simulação [s]
+Ts_val      = 0.001;                      % passo de integração [s]
+t_sim_val   = 250.0;                       % tempo total de simulação [s]
 
 % Matriz de inércia do corpo (sem os rotores) [kg.m^2]
 Jb = diag([258.9, 331.8, 575.4]); 
@@ -20,13 +20,13 @@ Jb(3,1) = -14.0;
 Jr_val = 0.12 * ones(n_r_val, 1);
 mum_val = 0.25 * ones(n_r_val, 1);
 km_val = 1000 * ones(n_r_val, 1);
-kf_val = (1114.46 / 1000^2) * ones(n_r_val, 1);
+kf_val = (1115 / 1000^2) * ones(n_r_val, 1);
 k_val = 0.02 * ones(n_r_val, 1);
 
-w_min_val = [100 * ones(8, 1); 0; 0];
+w_min_val = [0 * ones(8, 1); 0; 0];
 w_max_val = 1000 * ones(n_r_val, 1);
-f_min_val = [10 * ones(8, 1); 0; 0];
-f_max_val = 1114.46 * ones(n_r_val, 1);
+f_min_val = [0 * ones(8, 1); 0; 0];
+f_max_val = 1115 * ones(n_r_val, 1);
 
 % Geometria dos Rotores (Posição em relação ao CG)
 ell_b = [ 1.531, -1.305, 0.506;  
@@ -148,9 +148,10 @@ sGuidance.W_r     = [0,0,0; 0,0,100; 100,0,100; 100,100,100; 0,100,100; 0,0,100;
 sGuidance.W_alpha = zeros(3, size(sGuidance.W_r, 2));
 sGuidance.v_avg   = 5.0; % velocidade média do Minimum Jerk [m/s]
 sGuidance.R_acc   = 5.0; % raio de wayset de cruzeiro [m]
+sGuidance.R_acc_landing = 0.8; % raio de wayset apertado para o pré-pouso [m]
 sGuidance.v_max   = 5.0; % velocidade máxima de cruzeiro [m/s]
-sGuidance.a_max   = 2.0; % aceleração máxima de cruzeiro [m/s^2]
-sGuidance.wn_ref  = 0.8; % frequência natural do campo vetorial [rad/s]
+sGuidance.a_max   = 0.5; % aceleração máxima [m/s^2] (Reduzido para o drone real acompanhar)
+sGuidance.wn_ref  = 0.2; % frequência do campo vetorial (Reduzido para parear com wn_pos)
 
 
 %% 5. SALVAMENTO E EXPORTAÇÃO
